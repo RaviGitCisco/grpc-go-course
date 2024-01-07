@@ -22,5 +22,5 @@ func main() {
 	c := pb.NewGreetServiceClient(conn)
 
 	doGreet(c)
-
+	doGreetEveryone(c)
 }
