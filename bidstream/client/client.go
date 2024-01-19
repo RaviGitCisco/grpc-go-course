@@ -3,13 +3,15 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
+	pb "github.com/RaviGitCisco/grpc-go-course/bidstream/proto"
 	"google.golang.org/grpc"
-	pb "path/to/your/proto/package" // Change this to your actual proto package path
 )
 
 type client struct {

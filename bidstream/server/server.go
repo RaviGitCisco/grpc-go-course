@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"log"
@@ -9,8 +8,8 @@ import (
 	"sync"
 	"time"
 
+	pb "github.com/RaviGitCisco/grpc-go-course/bidstream/proto"
 	"google.golang.org/grpc"
-	pb "~/gocode/BidirectionalStream/home/rashank2/gocode/BidirectionalStream" // Change this to your actual proto package path
 )
 
 type server struct {
@@ -112,10 +111,10 @@ func main() {
 	closeCh := make(chan struct{})
 
 	serverInstance := &server{
-		sendCh:    sendCh,
-		recvCh:    recvCh,
-		timeout:   120 * time.Second,
-		closeCh:   closeCh,
+		sendCh:  sendCh,
+		recvCh:  recvCh,
+		timeout: 120 * time.Second,
+		closeCh: closeCh,
 	}
 
 	pb.RegisterBidirectionalServiceServer(srv, serverInstance)
