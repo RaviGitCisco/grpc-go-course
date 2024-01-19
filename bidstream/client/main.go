@@ -60,6 +60,7 @@ func main() {
 	recvWg.Add(1)
 	go func() {
 		defer recvWg.Done()
+		defer close(clientInstance.recvCh)
 		for {
 			msg, err := stream.Recv()
 			if err == io.EOF {
@@ -72,7 +73,6 @@ func main() {
 			fmt.Printf("Received message: %s\n", msg.Content)
 			clientInstance.recvCh <- msg
 		}
-		close(clientInstance.recvCh)
 	}()
 
 	// Handle outgoing messages
@@ -81,13 +81,19 @@ func main() {
 		defer sendWg.Done()
 		for i := 0; i < messageCount; i++ {
 			clientInstance.sendCh <- &pb.Message{Content: fmt.Sprintf("Client message %d", i)}
+			log.Println("Sent message sleeping 5 seconds")
 			time.Sleep(time.Duration(interval) * time.Second)
 		}
+		log.Println("closing sendch")
 		close(clientInstance.sendCh)
 	}()
 
 	// Wait for both goroutines to finish
 	sendWg.Wait()
-	close(stream, clientInstance.sendCh)
+	// Close the stream properly after sending all messages
+	if err := stream.CloseSend(); err != nil {
+		log.Printf("Error closing the stream: %v", err)
+	}
+	close(clientInstance.sendCh)
 	recvWg.Wait()
 }
