@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package bidstream; // Replace with your actual package name
+
+option go_package = "/home/rashank2/gocode/BidirectionalStream;bdirectional";
+
+message Message {
+  string content = 1;
+}
+
+service BidirectionalService {
+  rpc BidirectionalStream (stream Message) returns (stream Message);
+}
