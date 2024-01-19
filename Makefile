@@ -37,7 +37,7 @@ else
 endif
 
 .DEFAULT_GOAL := help
-.PHONY: greet blog calculator help
+.PHONY: greet blog calculator bidstream help
 project := greet calculator blog bidstream
 
 all: $(project) ## Generate Pbs and build
