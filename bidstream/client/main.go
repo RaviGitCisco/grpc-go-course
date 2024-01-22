@@ -3,27 +3,18 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"strconv"
-	"sync"
 	"time"
 
 	pb "github.com/RaviGitCisco/grpc-go-course/bidstream/proto"
 	"google.golang.org/grpc"
 )
 
-type client struct {
-	sendCh   chan *pb.Request
-	recvCh   chan *pb.Response
-	closeCh  chan struct{}
-	sendDone chan struct{}
-}
-
 func main() {
-	if len(os.Args) < 3 {
-		fmt.Println("Usage: client <interval_seconds> <message_count>")
+	if len(os.Args) < 2 {
+		fmt.Println("Usage: client <interval_seconds> ")
 		os.Exit(1)
 	}
 
@@ -32,105 +23,52 @@ func main() {
 		log.Fatalf("Invalid interval: %v", err)
 	}
 
-	messageCount, err := strconv.Atoi(os.Args[2])
+	dieafter, err := strconv.Atoi(os.Args[2])
 	if err != nil {
 		log.Fatalf("Invalid message count: %v", err)
 	}
 
+	log.Printf("interval %v", interval)
 	conn, err := grpc.Dial("localhost:50051", grpc.WithInsecure())
 	if err != nil {
 		log.Fatalf("Failed to connect: %v", err)
 	}
 	defer conn.Close()
 
-	clientInstance := &client{
-		sendCh:   make(chan *pb.Request),
-		recvCh:   make(chan *pb.Response),
-		closeCh:  make(chan struct{}),
-		sendDone: make(chan struct{}),
-	}
-
 	client := pb.NewBidirectionalServiceClient(conn)
+
+	ctx, cancel := context.WithTimeout(context.Background(), (time.Duration((uint32)(dieafter)) * time.Second))
+	defer cancel()
 
 	stream, err := client.BidirectionalStream(context.Background())
 	if err != nil {
 		log.Fatalf("Error creating stream: %v", err)
 	}
+	defer stream.CloseSend()
 
-	var sendWg sync.WaitGroup
-	var recvWg sync.WaitGroup
-
-	// Handle outgoing messages
-	sendWg.Add(1)
+	log.Printf("Stream created")
+	// Set up a goroutine to send RecordRequest messages every 60 seconds
 	go func() {
-		log.Printf("In send goroutine")
-		defer sendWg.Done()
-		defer close(clientInstance.sendCh)
-		for i := -1; i < messageCount; i++ {
-			msg := &pb.Request{Content: fmt.Sprintf("Client message %d", i)}
-			log.Printf("Send Message %v", msg)
-			select {
-			case clientInstance.sendCh <- msg:
-				log.Printf("Calling stream.send")
-				if err := stream.Send(msg); err != nil {
-					log.Printf("Error sending message: %v", err)
-					return
-				}
-				log.Println("Message sent successfully to Client.")
-				log.Println("Sent message sleeping 4 seconds")
-			case <-clientInstance.closeCh:
-				return
-			}
-			time.Sleep(time.Duration(interval) * time.Second)
-		}
-	}()
-
-	// Wait for the send goroutine to complete
-	go func() {
-		sendWg.Wait()
-		close(clientInstance.closeCh)
-	}()
-
-	// Handle incoming messages
-	recvWg.Add(1)
-	go func() {
-		defer recvWg.Done()
-		defer close(clientInstance.recvCh)
 		for {
-			log.Println("Waiting for response from server.")
-			msg, err := stream.Recv()
-			if err == io.EOF {
-				log.Println("Receving gorountine reached EOF.")
+			select {
+			case <-ctx.Done():
+				log.Printf("connection closed.")
 				return
+			case <-time.After(time.Duration((uint32)(interval)) * time.Second):
+				err = stream.Send(&pb.Request{
+					Content: "Clients request",
+				})
+				log.Printf("Sent message in stream.")
 			}
-			if err != nil {
-				log.Printf("Error receiving message: %v", err)
-				return
-			}
-			fmt.Printf("Received message: %s\n", msg.Content)
-			clientInstance.recvCh <- msg
 		}
 	}()
 
-	// Additional goroutine for processing received messages
-	go func() {
-		for receivedMsg := range clientInstance.recvCh {
-			// Process receivedMsg
-			fmt.Printf("Processing received message: %s\n", receivedMsg.Content)
+	// Receive and print RecordResponse messages
+	for {
+		response, err := stream.Recv()
+		if err != nil {
+			log.Fatalf("Failed to receive response: %v", err)
 		}
-	}()
-
-	// Wait for both goroutines to finish
-	sendWg.Wait()
-
-	// Close the stream properly after sending all messages
-	if err := stream.CloseSend(); err != nil {
-		log.Printf("Error closing the stream: %v", err)
+		fmt.Printf("Received RecordResponse: %s\n", response.String())
 	}
-
-	// Wait for the server responses
-	recvWg.Wait()
-
-	// Signal that the sending is done
-	close(clientInstance.sendDone)
 }
