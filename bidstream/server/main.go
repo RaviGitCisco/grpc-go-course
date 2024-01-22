@@ -59,12 +59,14 @@ func (s *server) BidirectionalStream(stream pb.BidirectionalService_Bidirectiona
 		}
 	}()
 
-	// Monitor timeout for incoming requests
-	go func() {
-		<-time.After(10 * time.Second)
-		log.Println("Connection timed out. Closing.")
-		cancel()
-	}()
+	/*
+		// Monitor timeout for incoming requests
+		go func() {
+			<-time.After(10 * time.Second)
+			log.Println("Connection timed out. Closing.")
+			cancel()
+		}()
+	*/
 
 	// Wait for the incoming requests goroutine to finish
 	wg.Wait()
