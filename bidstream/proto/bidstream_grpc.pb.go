@@ -47,8 +47,8 @@ func (c *bidirectionalServiceClient) BidirectionalStream(ctx context.Context, op
 }
 
 type BidirectionalService_BidirectionalStreamClient interface {
-	Send(*Request) error
-	Recv() (*Response, error)
+	Send(*Message) error
+	Recv() (*Message, error)
 	grpc.ClientStream
 }
 
@@ -56,12 +56,12 @@ type bidirectionalServiceBidirectionalStreamClient struct {
 	grpc.ClientStream
 }
 
-func (x *bidirectionalServiceBidirectionalStreamClient) Send(m *Request) error {
+func (x *bidirectionalServiceBidirectionalStreamClient) Send(m *Message) error {
 	return x.ClientStream.SendMsg(m)
 }
 
-func (x *bidirectionalServiceBidirectionalStreamClient) Recv() (*Response, error) {
-	m := new(Response)
+func (x *bidirectionalServiceBidirectionalStreamClient) Recv() (*Message, error) {
+	m := new(Message)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
@@ -101,8 +101,8 @@ func _BidirectionalService_BidirectionalStream_Handler(srv interface{}, stream g
 }
 
 type BidirectionalService_BidirectionalStreamServer interface {
-	Send(*Response) error
-	Recv() (*Request, error)
+	Send(*Message) error
+	Recv() (*Message, error)
 	grpc.ServerStream
 }
 
@@ -110,12 +110,12 @@ type bidirectionalServiceBidirectionalStreamServer struct {
 	grpc.ServerStream
 }
 
-func (x *bidirectionalServiceBidirectionalStreamServer) Send(m *Response) error {
+func (x *bidirectionalServiceBidirectionalStreamServer) Send(m *Message) error {
 	return x.ServerStream.SendMsg(m)
 }
 
-func (x *bidirectionalServiceBidirectionalStreamServer) Recv() (*Request, error) {
-	m := new(Request)
+func (x *bidirectionalServiceBidirectionalStreamServer) Recv() (*Message, error) {
+	m := new(Message)
 	if err := x.ServerStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
