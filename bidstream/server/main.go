@@ -1,8 +1,6 @@
 package main
 
 import (
-	"fmt"
-	"io"
 	"log"
 	"net"
 	"sync"
@@ -14,168 +12,136 @@ import (
 
 type server struct {
 	pb.BidirectionalServiceServer
-	sendCh    chan *pb.Message
-	recvCh    chan *pb.Message
-	timeout   time.Duration
-	closeOnce sync.Once
-	closeCh   chan struct{}
+	mu           sync.Mutex
+	lastReceived time.Time
+	eventChannel chan string
 }
 
-var glbsrInst *server
+func newRecordServer() *server {
+	return &server{
+		eventChannel: make(chan string),
+	}
+}
 
 func (s *server) BidirectionalStream(stream pb.BidirectionalService_BidirectionalStreamServer) error {
-	var wg sync.WaitGroup
-
-	// Handle incoming messages
-	log.Printf("In BidirectionalStream starting the receive goroutine.")
-	wg.Add(1)
-	go func() {
-		log.Printf("Receive goroutine started.")
-		defer wg.Done()
-		for {
-			select {
-			case <-s.closeCh:
-				log.Println("Close channel message received.")
-				return
-			default:
-				log.Printf("Now stream Recv calling.")
-				msg, err := stream.Recv()
-				if err == io.EOF {
-					log.Println("Stream received EOF message.")
-					return
-				}
-				if err != nil {
-					log.Printf("Error receiving message: %v", err)
-					s.closeConnection()
-					return
-				}
-				fmt.Printf("Received message: %s\n", msg.Content)
-				s.recvCh <- msg
-			}
-		}
-	}()
-
-	// Handle outgoing messages
-	wg.Add(1)
-	go func() {
-		log.Printf("Send goroutine started.")
-		defer wg.Done()
-		for {
-			select {
-			case <-s.closeCh:
-				log.Println("Closing the Send channel.")
-				return
-			case msg := <-s.sendCh:
-				if msg == nil {
-					// Log an error or handle the nil message case appropriately
-					log.Printf("Error: Attempted to send nil message.")
-					continue
-				}
-				if err := stream.Send(msg); err != nil {
-					log.Printf("Error sending message: %v", err)
-					s.closeConnection()
-					return
-				}
-				log.Println("Message sent successfully to Client.")
-			}
-			log.Println("Within send message for loop.")
-		}
-	}()
-
-	// Monitor timeout for receiving messages
-	wg.Add(1)
-	go func() {
-		timer := time.NewTimer(s.timeout)
-		defer timer.Stop()
-		log.Println("Timer started to receive messages from client")
-		for {
-			select {
-			case <-timer.C:
-				log.Println("Connection timed out. Closing.")
-				s.closeConnection()
-				return
-			case <-s.recvCh:
-				// Reset the timer if a message is received
-				if !timer.Stop() {
-					log.Println("Stop timer block.")
-					<-timer.C
-				}
-				log.Println("Resetting the timer")
-				timer.Reset(s.timeout)
-				// Simulate sending messages to the server
-				go func() {
-					for i := 0; i < 5; i++ {
-						msg := &pb.Message{Content: fmt.Sprintf("Server response %d", i)}
-						log.Printf("Sending message %v", msg.Content)
-						glbsrInst.sendCh <- msg
-						log.Println("Message sent to sendch.")
+	// Start a goroutine to handle incoming events from other modules
+	/*
+		go func() {
+			for {
+				select {
+				case event := <-s.eventChannel:
+					// Send RecordResponse to the client when an event occurs
+					if err := stream.Send(&pb.Response{Content: event}); err != nil {
+						log.Printf("Error sending RecordResponse: %v", err)
 					}
-					///close(glbsrInst.sendCh)
-					log.Println("Exiting send routine.")
-				}()
-
-			case <-s.closeCh:
-				log.Println("Closing the channel")
-				return
+				}
 			}
-			log.Println("I am looping here.")
+		}()
+	*/
+	// Start a goroutine to simulate events from other modules
+	log.Printf("Created timer routine")
+	go func() {
+		for {
+			time.Sleep(2 * time.Second) // Simulating an event occurring every 5 seconds
+			select {
+			case value, ok := <-s.eventChannel:
+				if !ok {
+					log.Printf("Channel is closed %v", value)
+					return
+				}
+			default:
+				s.eventChannel <- "Event occurred"
+			}
 		}
 	}()
+	log.Printf("Inside Server")
+	go func() {
+		for event := range s.eventChannel {
+			if event == "Exit" {
+				log.Printf("Exiting Server. Client liveness expired.")
+				close(s.eventChannel)
+				return
+			}
+			log.Printf("Sending message in stream")
+			// Send RecordResponse to the client when an event occurs
+			if err := stream.Send(&pb.Response{Content: event}); err != nil {
+				log.Printf("Error sending RecordResponse: %v", err)
+			}
+		}
+	}()
+	// Receive RecordRequest from the client
+	for {
+		log.Printf("Waiting for request from client")
+		_, err := stream.Recv()
+		if err != nil {
+			// Handle client disconnection or errors
+			return err
+		}
 
-	// Wait for both goroutines to finish
-	log.Println("Waiting for both go routines to finish.")
-	wg.Wait()
-	return nil
+		value, ok := <-s.eventChannel
+
+		if !ok {
+			log.Printf("Channel is closed %v.", value)
+			return err
+		}
+		// Update the last received timestamp
+		s.mu.Lock()
+		log.Printf("Last received %v.", time.Now())
+		s.lastReceived = time.Now()
+		s.mu.Unlock()
+	}
 }
 
-func (s *server) closeConnection() {
-	s.closeOnce.Do(func() {
-		log.Println("Closing the channel")
-		close(s.closeCh)
-	})
-}
+func (s *server) checkLiveliness() {
+	// Check liveliness every 60 seconds
+	ticker := time.NewTicker(20 * time.Second)
+	defer ticker.Stop()
 
-// The following methods are required to implement BidirectionalServiceServer interface
-//func (s *server) BidirectionalServiceServer(ctx context.Context, request *pb.Message) (*pb.Message, error) {
-// Implement the method logic here
-//return &pb.Message{}, nil
-//}
+	for range ticker.C {
+		s.mu.Lock()
+		elapsed := time.Since(s.lastReceived)
+		log.Printf("Last received %v elapsed %v", s.lastReceived, elapsed)
+		s.mu.Unlock()
+
+		if elapsed > 40*time.Second {
+			log.Println("Client is not sending RecordRequest for more than 120 seconds. Resetting connection.")
+			// You can perform any cleanup or reset connection logic here
+			s.eventChannel <- "Exit"
+			return
+		}
+	}
+}
 
 func main() {
+	var wg sync.WaitGroup
 	listener, err := net.Listen("tcp", ":50051")
 	if err != nil {
 		log.Fatalf("Failed to listen: %v", err)
 	}
 
-	srv := grpc.NewServer()
+	acctserver := grpc.NewServer()
+	recordService := newRecordServer()
+	pb.RegisterBidirectionalServiceServer(acctserver, recordService)
 
-	sendCh := make(chan *pb.Message)
-	recvCh := make(chan *pb.Message)
-	closeCh := make(chan struct{})
-
-	serverInstance := &server{
-		sendCh:  sendCh,
-		recvCh:  recvCh,
-		timeout: 120 * time.Second,
-		closeCh: closeCh,
-	}
-
-	glbsrInst = serverInstance
-
-	pb.RegisterBidirectionalServiceServer(srv, serverInstance)
-
+	server := &server{}
+	// Start the server
+	wg.Add(2)
+	log.Printf("Serving now.")
 	go func() {
-		log.Println("Server is listening on :50051")
-		if err := srv.Serve(listener); err != nil {
-			log.Fatalf("Failed to serve: %v", err)
-		}
-		log.Println("Listner routine started.")
+		defer wg.Done()
+		log.Printf("Serving now.")
+		acctserver.Serve(listener)
+		log.Printf("Service Server returned.")
 	}()
 
-	// Wait for user input to exit
-	fmt.Println("Press Enter to exit...")
-	fmt.Scanln()
-	close(serverInstance.sendCh)
-	close(serverInstance.recvCh)
-	srv.GracefulStop()
+	// Start a goroutine to check client liveliness
+	go func() {
+		defer wg.Done()
+		recordService.checkLiveliness()
+		log.Printf("CheckLiveliness returned")
+		server.eventChannel <- "Exit"
+	}()
+
+	log.Println("Server started at :50051")
+	wg.Wait()
 }
