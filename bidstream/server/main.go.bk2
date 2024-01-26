@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"log"
 	"net"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -35,7 +38,7 @@ func (s *server) BidirectionalStream(stream pb.BidirectionalService_Bidirectiona
 		for {
 			select {
 			case <-s.closeCh:
-				log.Println("Close channel message received.")
+				log.Println("Close channel message received. Return receive routine.")
 				return
 			default:
 				log.Printf("Now stream Recv calling.")
@@ -64,6 +67,7 @@ func (s *server) BidirectionalStream(stream pb.BidirectionalService_Bidirectiona
 			select {
 			case <-s.closeCh:
 				log.Println("Closing the Send channel.")
+				close(s.recvCh)
 				return
 			case msg := <-s.sendCh:
 				if msg == nil {
@@ -115,7 +119,7 @@ func (s *server) BidirectionalStream(stream pb.BidirectionalService_Bidirectiona
 				}()
 
 			case <-s.closeCh:
-				log.Println("Closing the channel")
+				log.Println("Closing the timer channel")
 				return
 			}
 			log.Println("I am looping here.")
@@ -125,12 +129,13 @@ func (s *server) BidirectionalStream(stream pb.BidirectionalService_Bidirectiona
 	// Wait for both goroutines to finish
 	log.Println("Waiting for both go routines to finish.")
 	wg.Wait()
+	log.Printf("All goroutines returned")
 	return nil
 }
 
 func (s *server) closeConnection() {
 	s.closeOnce.Do(func() {
-		log.Println("Closing the channel")
+		log.Println("Closing the closeCh channel")
 		close(s.closeCh)
 	})
 }
@@ -173,8 +178,22 @@ func main() {
 	}()
 
 	// Wait for user input to exit
-	fmt.Println("Press Enter to exit...")
-	fmt.Scanln()
+	fmt.Println("Type 'exit' to quit the program.")
+
+	// Create a scanner to read user input from the console
+	scanner := bufio.NewScanner(os.Stdin)
+
+	// Continue prompting the user until they type 'exit'
+	for {
+		fmt.Print("Enter text: ")
+		scanner.Scan()
+		input := scanner.Text()
+
+		if strings.ToLower(input) == "exit" {
+			fmt.Println("Exiting the program.")
+			break
+		}
+	}
 	close(serverInstance.sendCh)
 	close(serverInstance.recvCh)
 	srv.GracefulStop()
